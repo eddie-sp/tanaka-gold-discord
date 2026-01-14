@@ -6,6 +6,25 @@ import os
 URL = "https://gold.tanaka.co.jp/commodity/souba/d-gold.php"
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 
+def extract_prices(soup):
+    retail = None
+    diff = None
+
+    for tr in soup.find_all("tr"):
+        th = tr.find("th")
+        td = tr.find("td")
+        if not th or not td:
+            continue
+
+        label = th.get_text(strip=True)
+
+        if "店頭小売価格" in label:
+            retail = td.get_text(strip=True)
+        elif "小売価格前日比" in label:
+            diff = td.get_text(strip=True)
+
+    return retail, diff
+
 def main():
     # 平日チェック
     if datetime.now().weekday() >= 5:
@@ -16,18 +35,12 @@ def main():
 
     soup = BeautifulSoup(res.text, "html.parser")
 
-    # 店頭小売価格（税込）
-    retail_price = soup.find("th", string="店頭小売価格（税込）") \
-                       .find_next_sibling("td") \
-                       .get_text(strip=True)
+    retail_price, diff_price = extract_prices(soup)
 
-    # 小売価格 前日比
-    diff_price = soup.find("th", string="小売価格 前日比") \
-                     .find_next_sibling("td") \
-                     .get_text(strip=True)
+    if not retail_price or not diff_price:
+        raise RuntimeError("価格情報を取得できませんでした")
 
     today = datetime.now().strftime("%Y/%m/%d（%a）")
-
     arrow = "📈" if "+" in diff_price else "📉"
 
     message = (
