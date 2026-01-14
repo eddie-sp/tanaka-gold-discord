@@ -1,15 +1,17 @@
 name: Gold Price Notify
 
 on:
-  schedule:
-    - cron: '0 1 * * 1-5'   # 日本時間10時（UTC+9）
   workflow_dispatch:
+  schedule:
+    - cron: '0 1 * * *'   # 日本時間10時（UTC 1時）
 
 jobs:
-  run:
+  notify:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -20,8 +22,9 @@ jobs:
         run: |
           pip install requests beautifulsoup4
 
-      - name: Run script
+      - name: Run python fetch_gold.py
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_USER_ID: ${{ secrets.DISCORD_USER_ID }}
         run: |
           python fetch_gold.py
