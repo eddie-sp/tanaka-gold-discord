@@ -7,9 +7,6 @@ import re
 # 田中貴金属 金価格ページ
 URL = "https://gold.tanaka.co.jp/commodity/souba/d-gold.php"
 
-# 🔔 Discord あなたのユーザーID（ここを書き換える）
-DISCORD_USER_ID = "ここにあなたのDiscordユーザーIDを入れる"
-
 
 def text_or_fail(elem):
     if elem is None:
@@ -48,8 +45,16 @@ def main():
     if date_text == "取得失敗":
         date_text = datetime.now().strftime("%Y/%m/%d")
 
-    # Discord メンション
-    mention = f"<@{DISCORD_USER_ID}>"
+    # Secrets から取得
+    webhook = os.environ.get("DISCORD_WEBHOOK_URL")
+    user_id = os.environ.get("DISCORD_USER_ID")
+
+    if not webhook:
+        raise RuntimeError("DISCORD_WEBHOOK_URL が未設定です")
+    if not user_id:
+        raise RuntimeError("DISCORD_USER_ID が未設定です")
+
+    mention = f"<@{user_id}>"
 
     # Discord メッセージ
     message = (
@@ -60,11 +65,6 @@ def main():
         f"📊 小売価格 前日比\n"
         f"{price_diff}"
     )
-
-    # Webhook URL
-    webhook = os.environ.get("DISCORD_WEBHOOK_URL")
-    if not webhook:
-        raise RuntimeError("DISCORD_WEBHOOK_URL が未設定です")
 
     # Discord送信
     r = requests.post(
