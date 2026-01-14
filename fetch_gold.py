@@ -8,8 +8,8 @@ import time
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 DISCORD_USER_ID = os.getenv("DISCORD_USER_ID")
 
-# 取得するサイトURL（テスト用、必ず値があるページ）
-GOLD_SITE_URL = "https://ja.goldpedia.org/?test_price=available"
+# 取得するサイトURL（本番）
+GOLD_SITE_URL = "https://ja.goldpedia.org/"  # 本番ページ
 TANAKA_URL = "https://gold.tanaka.co.jp/commodity/souba/d-gold.php"
 
 # 最大リトライ回数
