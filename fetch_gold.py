@@ -1,79 +1,80 @@
 import requests
 from bs4 import BeautifulSoup
+import datetime
 import os
-from datetime import datetime
-import re
+import time
 
-# 田中貴金属 金価格ページ
-URL = "https://gold.tanaka.co.jp/commodity/souba/d-gold.php"
+# Discord Webhook URL とユーザーIDは Secrets から取得
+DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
+DISCORD_USER_ID = os.getenv("DISCORD_USER_ID")
 
+# 取得するサイトURL
+GOLD_SITE_URL = "https://ja.goldpedia.org/"  # Goldpedia の田中価格掲載ページ
+TANAKA_URL = "https://gold.tanaka.co.jp/commodity/souba/d-gold.php"
 
-def text_or_fail(elem):
-    if elem is None:
-        return "取得失敗"
-    return elem.get_text(" ", strip=True)
+# 最大リトライ回数
+MAX_RETRY = 3
 
+# Discordに送信
+def send_discord(message):
+    if not DISCORD_WEBHOOK_URL or not DISCORD_USER_ID:
+        raise RuntimeError("DISCORD_WEBHOOK_URL または DISCORD_USER_ID が未設定です")
+    data = {
+        "content": f"<@{DISCORD_USER_ID}> {message}"
+    }
+    response = requests.post(DISCORD_WEBHOOK_URL, json=data)
+    response.raise_for_status()
 
-def find_price(soup, keyword):
-    """
-    <th>ラベル</th><td>値</td> 構造を前提に取得
-    """
-    th = soup.find("th", string=re.compile(keyword))
-    if th is None:
-        return "取得失敗"
+# Goldpedia から田中価格を取得
+def fetch_gold_price():
+    try:
+        res = requests.get(GOLD_SITE_URL, timeout=10)
+        res.raise_for_status()
+        soup = BeautifulSoup(res.text, "html.parser")
 
-    td = th.find_next_sibling("td")
-    if td is None:
-        return "取得失敗"
+        # テーブルから田中貴金属の行を検索
+        table = soup.find("table")
+        if not table:
+            return None, None
 
-    return text_or_fail(td)
+        rows = table.find_all("tr")
+        for row in rows:
+            cols = row.find_all("td")
+            if not cols:
+                continue
+            if "田中貴金属" in cols[0].get_text():
+                price_text = cols[1].get_text(strip=True)
+                change_text = cols[2].get_text(strip=True) if len(cols) > 2 else ""
+                return price_text, change_text
 
+        return None, None
+    except Exception as e:
+        return None, None
 
 def main():
-    # ページ取得
-    res = requests.get(URL, timeout=20)
-    res.raise_for_status()
-    soup = BeautifulSoup(res.text, "html.parser")
+    retry = 0
+    notified_not_updated = False
+    while retry <= MAX_RETRY:
+        price, change = fetch_gold_price()
+        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+        if price:
+            msg = f"📈 更新された金価格（田中貴金属）\n日時: {now}\n店頭小売価格: {price}\n前日比: {change}\n🔗 公式サイト: {TANAKA_URL}"
+            send_discord(msg)
+            return
+        else:
+            if not notified_not_updated:
+                msg = f"⏳ まだ価格が更新されていません（{now}）\n🔗 公式サイト: {TANAKA_URL}"
+                send_discord(msg)
+                notified_not_updated = True
 
-    # 価格取得
-    retail_price = find_price(soup, "店頭小売価格")
-    price_diff   = find_price(soup, "前日比")
+        retry += 1
+        if retry > MAX_RETRY:
+            msg = f"⚠️ 最大リトライ回数に達しました（{now}）\n🔗 公式サイト: {TANAKA_URL}"
+            send_discord(msg)
+            return
 
-    # 日付取得（取れなければ今日）
-    date_elem = soup.find("span", class_=re.compile("date"))
-    date_text = text_or_fail(date_elem)
-    if date_text == "取得失敗":
-        date_text = datetime.now().strftime("%Y/%m/%d")
-
-    # Secrets から取得
-    webhook = os.environ.get("DISCORD_WEBHOOK_URL")
-    user_id = os.environ.get("DISCORD_USER_ID")
-
-    if not webhook:
-        raise RuntimeError("DISCORD_WEBHOOK_URL が未設定です")
-    if not user_id:
-        raise RuntimeError("DISCORD_USER_ID が未設定です")
-
-    mention = f"<@{user_id}>"
-
-    # Discord メッセージ
-    message = (
-        f"{mention}\n"
-        f"📅 {date_text}\n\n"
-        f"💰 店頭小売価格（税込）\n"
-        f"{retail_price}\n\n"
-        f"📊 小売価格 前日比\n"
-        f"{price_diff}"
-    )
-
-    # Discord送信
-    r = requests.post(
-        webhook,
-        json={"content": message},
-        timeout=10
-    )
-    r.raise_for_status()
-
+        # 次のリトライまで待機（GitHub Actions では基本リトライは別スケジュール推奨ですが、待機しても可）
+        time.sleep(5 * 60)  # 5分待機
 
 if __name__ == "__main__":
     main()
