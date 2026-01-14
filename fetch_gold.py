@@ -40,4 +40,40 @@ def main():
 
     # 価格取得
     retail_price = find_price(soup, "店頭小売価格")
-    p
+    price_diff   = find_price(soup, "前日比")
+
+    # 日付取得（取れなければ今日）
+    date_elem = soup.find("span", class_=re.compile("date"))
+    date_text = text_or_fail(date_elem)
+    if date_text == "取得失敗":
+        date_text = datetime.now().strftime("%Y/%m/%d")
+
+    # Discord メンション
+    mention = f"<@{DISCORD_USER_ID}>"
+
+    # Discord メッセージ
+    message = (
+        f"{mention}\n"
+        f"📅 {date_text}\n\n"
+        f"💰 店頭小売価格（税込）\n"
+        f"{retail_price}\n\n"
+        f"📊 小売価格 前日比\n"
+        f"{price_diff}"
+    )
+
+    # Webhook URL
+    webhook = os.environ.get("DISCORD_WEBHOOK_URL")
+    if not webhook:
+        raise RuntimeError("DISCORD_WEBHOOK_URL が未設定です")
+
+    # Discord送信
+    r = requests.post(
+        webhook,
+        json={"content": message},
+        timeout=10
+    )
+    r.raise_for_status()
+
+
+if __name__ == "__main__":
+    main()
