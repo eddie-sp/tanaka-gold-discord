@@ -9,11 +9,14 @@ DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 DISCORD_USER_ID = os.getenv("DISCORD_USER_ID")
 
 # 取得するサイトURL（本番）
-GOLD_SITE_URL = "https://ja.goldpedia.org/"  # 本番ページ
+GOLD_SITE_URL = "https://ja.goldpedia.org/"
 TANAKA_URL = "https://gold.tanaka.co.jp/commodity/souba/d-gold.php"
 
 # 最大リトライ回数
 MAX_RETRY = 3
+
+# 過去最高値を保存するファイル名
+ATH_FILE = "ath.txt"
 
 # Discordに送信
 def send_discord(message):
@@ -48,8 +51,20 @@ def fetch_gold_price():
                 return price_text, change_text
 
         return None, None
-    except Exception as e:
+    except Exception:
         return None, None
+
+# 過去最高値を取得
+def read_ath():
+    if os.path.exists(ATH_FILE):
+        with open(ATH_FILE, "r") as f:
+            return int(f.read().strip())
+    return 0
+
+# 過去最高値を保存
+def write_ath(value):
+    with open(ATH_FILE, "w") as f:
+        f.write(str(value))
 
 def main():
     retry = 0
@@ -58,7 +73,17 @@ def main():
         price, change = fetch_gold_price()
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
         if price:
-            msg = f"📈 更新された金価格（田中貴金属）\n日時: {now}\n店頭小売価格: {price}\n前日比: {change}\n🔗 公式サイト: {TANAKA_URL}"
+            # 価格を整数に変換（カンマ除去）
+            price_int = int(price.replace(",", ""))
+
+            # 過去最高値判定
+            ath = read_ath()
+            if price_int > ath:
+                write_ath(price_int)
+                msg = f"🎊 再種更新‼️🚀\n📈 更新された金価格（田中貴金属）\n日時: {now}\n店頭小売価格: {price}\n前日比: {change}\n🔗 公式サイト: {TANAKA_URL}"
+            else:
+                msg = f"📈 更新された金価格（田中貴金属）\n日時: {now}\n店頭小売価格: {price}\n前日比: {change}\n🔗 公式サイト: {TANAKA_URL}"
+
             send_discord(msg)
             return
         else:
