@@ -1,61 +1,54 @@
 import requests
 from bs4 import BeautifulSoup
-from datetime import datetime
 import os
+from datetime import datetime
 
 URL = "https://gold.tanaka.co.jp/commodity/souba/d-gold.php"
-WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 
-def extract_prices(soup):
-    retail = None
-    diff = None
 
-    for tr in soup.find_all("tr"):
-        th = tr.find("th")
-        td = tr.find("td")
-        if not th or not td:
-            continue
+def safe_text(elem):
+    """要素が取れない場合でも落ちないようにする"""
+    return elem.get_text(strip=True) if elem else "取得失敗"
 
-        label = th.get_text(strip=True)
-
-        if "店頭小売価格" in label:
-            retail = td.get_text(strip=True)
-        elif "小売価格前日比" in label:
-            diff = td.get_text(strip=True)
-
-    return retail, diff
 
 def main():
-    # 平日チェック
-    if datetime.now().weekday() >= 5:
-        return
-
-    res = requests.get(URL, timeout=30)
+    # ページ取得
+    res = requests.get(URL, timeout=10)
     res.raise_for_status()
-
     soup = BeautifulSoup(res.text, "html.parser")
 
-    retail_price, diff_price = extract_prices(soup)
+    # 「店頭小売価格（税込）」を探す
+    retail_label = soup.find("td", string="店頭小売価格（税込）")
+    retail_price = safe_text(
+        retail_label.find_next_sibling("td") if retail_label else None
+    )
 
-    if not retail_price or not diff_price:
-        raise RuntimeError("価格情報を取得できませんでした")
+    # 「小売価格 前日比」を探す
+    diff_label = soup.find("td", string="小売価格 前日比")
+    price_diff = safe_text(
+        diff_label.find_next_sibling("td") if diff_label else None
+    )
 
-    today = datetime.now().strftime("%Y/%m/%d（%a）")
-    arrow = "📈" if "+" in diff_price else "📉"
+    # 日付（ページ内の日付 or 今日）
+    date_elem = soup.find("span", class_="date")
+    date_text = safe_text(date_elem)
 
+    if date_text == "取得失敗":
+        date_text = datetime.now().strftime("%Y/%m/%d")
+
+    # Discord メッセージ作成
     message = (
-        f"📅 {today}\n\n"
-        f"💰 **店頭小売価格（税込）**\n"
+        f"📅 {date_text}\n\n"
+        f"💰 店頭小売価格（税込）\n"
         f"{retail_price}\n\n"
-        f"📊 **小売価格 前日比**\n"
-        f"{diff_price} {arrow}"
+        f"📊 小売価格 前日比\n"
+        f"{price_diff}"
     )
 
-    requests.post(
-        WEBHOOK_URL,
-        json={"content": message},
-        timeout=30
-    )
+    # Discord Webhook
+    webhook_url = os.environ.get("DISCORD_WEBHOOK_URL")
+    if not webhook_url:
+        raise RuntimeError("DISCORD_WEBHOOK_URL が設定されていません")
 
-if __name__ == "__main__":
-    main()
+    payload = {
+        "cont
