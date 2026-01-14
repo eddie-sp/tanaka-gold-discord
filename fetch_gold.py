@@ -7,28 +7,31 @@ import re
 URL = "https://gold.tanaka.co.jp/commodity/souba/d-gold.php"
 
 
-def safe_text(elem):
-    return elem.get_text(strip=True) if elem else "取得失敗"
-
-
-def find_value_by_label(soup, label_text):
-    label = soup.find("td", string=re.compile(label_text))
-    if not label:
+def text_or_fail(elem):
+    if elem is None:
         return "取得失敗"
-    value_td = label.find_next_sibling("td")
-    return safe_text(value_td)
+    return elem.get_text(" ", strip=True)
+
+
+def find_price(soup, keyword):
+    td = soup.find("td", string=re.compile(keyword))
+    if td is None:
+        return "取得失敗"
+    value_td = td.find_next_sibling("td")
+    return text_or_fail(value_td)
 
 
 def main():
-    res = requests.get(URL, timeout=15)
+    res = requests.get(URL, timeout=20)
     res.raise_for_status()
+
     soup = BeautifulSoup(res.text, "html.parser")
 
-    retail_price = find_value_by_label(soup, "店頭小売価格")
-    price_diff   = find_value_by_label(soup, "前日比")
+    retail_price = find_price(soup, "店頭小売価格")
+    price_diff   = find_price(soup, "前日比")
 
-    date_elem = soup.find("span", class_="date")
-    date_text = safe_text(date_elem)
+    date_elem = soup.find("span", class_=re.compile("date"))
+    date_text = text_or_fail(date_elem)
     if date_text == "取得失敗":
         date_text = datetime.now().strftime("%Y/%m/%d")
 
@@ -38,11 +41,11 @@ def main():
         f"📊 小売価格 前日比\n{price_diff}"
     )
 
-    webhook_url = os.environ.get("DISCORD_WEBHOOK_URL")
-    if not webhook_url:
-        raise RuntimeError("DISCORD_WEBHOOK_URL が設定されていません")
+    webhook = os.environ.get("DISCORD_WEBHOOK_URL")
+    if not webhook:
+        raise RuntimeError("DISCORD_WEBHOOK_URL が未設定です")
 
-    r = requests.post(webhook_url, json={"content": message}, timeout=10)
+    r = requests.post(webhook, json={"content": message}, timeout=10)
     r.raise_for_status()
 
 
