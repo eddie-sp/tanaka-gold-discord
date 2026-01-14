@@ -59,7 +59,7 @@ def read_ath():
     if os.path.exists(ATH_FILE):
         with open(ATH_FILE, "r") as f:
             return int(f.read().strip())
-    return 0
+    return 26051  # 初回は26,051円を初期値に設定
 
 # 過去最高値を保存
 def write_ath(value):
