@@ -21,7 +21,7 @@ def send_discord(message):
         print("Error: DISCORD_WEBHOOK_URL is not set.")
         return
     
-    # メンション付き
+    # eddieさんへのメンション付き
     content = f"<@{DISCORD_USER_ID}> {message}" if DISCORD_USER_ID else message
     
     data = {"content": content}
@@ -43,22 +43,28 @@ def fetch_gold_price():
 
         rows = soup.find_all("tr")
         for row in rows:
-            if "田中貴金属" in row.get_text():
+            row_text = row.get_text()
+            if "田中貴金属" in row_text:
                 cols = row.find_all("td")
-                # cols[0]:店舗名, cols[1]:小売価格, cols[2]:前日比(または買取), cols[3]:前日比
                 if len(cols) >= 3:
-                    # 小売価格
+                    # 小売価格を抽出（数字のみ）
                     raw_price = cols[1].get_text(strip=True)
                     price_text = re.sub(r'\D', '', raw_price) 
                     
-                    # 前日比の特定 (数値が5桁以上の場合は「買取価格」と判断してスキップ)
-                    change_candidate = cols[2].get_text(strip=True)
-                    clean_change = re.sub(r'[^-0-9]', '', change_candidate)
+                    # 前日比を賢く特定
+                    # 全ての列の中から「+」か「-」が含まれる、または値が小さい列を探す
+                    change_text = "不明"
+                    for i in range(2, len(cols)):
+                        val = cols[i].get_text(strip=True)
+                        # 25,000円のような大きな数値（買取価格）は無視
+                        clean_val = re.sub(r'[^-+0-9]', '', val)
+                        if clean_val and -2000 < int(clean_val.replace('+', '')) < 2000:
+                            change_text = val
+                            break
                     
-                    if len(clean_change) > 4: # 25,751のような数値なら次の列へ
-                        change_text = cols[3].get_text(strip=True) if len(cols) > 3 else "不明"
-                    else:
-                        change_text = change_candidate
+                    # それでも見つからない場合の予備ロジック
+                    if change_text == "不明" and len(cols) >= 4:
+                         change_text = cols[3].get_text(strip=True)
 
                     print(f"Found price: {price_text}, change: {change_text}")
                     return price_text, change_text
@@ -106,12 +112,12 @@ def main():
                    f"🔗 公式サイト: {TANAKA_URL}")
 
             send_discord(msg)
-            return # 成功したら即終了
+            return
         
         retry += 1
         if retry <= MAX_RETRY:
             print(f"Retry {retry} in 5 seconds...")
-            time.sleep(5) # テストのために待機時間を短縮
+            time.sleep(5)
         else:
             print("Failed to fetch price after retries.")
 
