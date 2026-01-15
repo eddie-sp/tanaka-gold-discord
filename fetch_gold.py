@@ -9,8 +9,7 @@ import re
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 DISCORD_USER_ID = os.getenv("DISCORD_USER_ID")
 
-# 取得先URL
-GOLD_SITE_URL = "https://ja.goldpedia.org/"
+# ターゲットは田中貴金属公式サイト
 TANAKA_URL = "https://gold.tanaka.co.jp/commodity/souba/d-gold.php"
 
 MAX_RETRY = 3
@@ -21,9 +20,7 @@ def send_discord(message):
         print("Error: DISCORD_WEBHOOK_URL is not set.")
         return
     
-    # eddieさんへのメンション付き
     content = f"<@{DISCORD_USER_ID}> {message}" if DISCORD_USER_ID else message
-    
     data = {"content": content}
     try:
         response = requests.post(DISCORD_WEBHOOK_URL, json=data)
@@ -37,37 +34,49 @@ def fetch_gold_price():
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
     try:
-        res = requests.get(GOLD_SITE_URL, headers=headers, timeout=15)
+        res = requests.get(TANAKA_URL, headers=headers, timeout=15)
         res.raise_for_status()
+        # 田中貴金属のサイトは Shift_JIS なのでエンコーディングを設定
+        res.encoding = res.apparent_encoding
         soup = BeautifulSoup(res.text, "html.parser")
 
-        rows = soup.find_all("tr")
-        for row in rows:
-            row_text = row.get_text()
-            if "田中貴金属" in row_text:
-                cols = row.find_all("td")
-                if len(cols) >= 3:
-                    # 小売価格を抽出（数字のみ）
-                    raw_price = cols[1].get_text(strip=True)
-                    price_text = re.sub(r'\D', '', raw_price) 
-                    
-                    # 前日比を賢く特定
-                    # 全ての列の中から「+」か「-」が含まれる、または値が小さい列を探す
-                    change_text = "不明"
-                    for i in range(2, len(cols)):
-                        val = cols[i].get_text(strip=True)
-                        # 25,000円のような大きな数値（買取価格）は無視
-                        clean_val = re.sub(r'[^-+0-9]', '', val)
-                        if clean_val and -2000 < int(clean_val.replace('+', '')) < 2000:
-                            change_text = val
-                            break
-                    
-                    # それでも見つからない場合の予備ロジック
-                    if change_text == "不明" and len(cols) >= 4:
-                         change_text = cols[3].get_text(strip=True)
+        # 1. 小売価格の取得 (ID: r_gold_k で指定されている場合が多い)
+        # サイト内のテーブルから「金」の「小売価格」行を特定
+        price_val = None
+        change_val = "変動なし"
 
-                    print(f"Found price: {price_text}, change: {change_text}")
-                    return price_text, change_text
+        # 金の小売価格が記載されているクラスや要素を検索
+        # 田中貴金属のサイト構造：<div id="retail_price"> 内の価格を取得
+        target_box = soup.find("div", id="gold_price")
+        if not target_box:
+            # 代替：テーブルから探す
+            rows = soup.find_all("tr")
+            for row in rows:
+                if "小売価格" in row.get_text() and "金" in row.get_text():
+                    cols = row.find_all(["td", "th"])
+                    for col in cols:
+                        text = col.get_text(strip=True)
+                        if "円" in text and len(text) > 2:
+                            price_val = re.sub(r'\D', '', text)
+                            break
+        else:
+            price_text = target_box.get_text(strip=True)
+            price_val = re.sub(r'\D', '', price_text)
+
+        # 2. 前日比の取得
+        # クラス名 "price_up" (赤) や "price_down" (青) を探す
+        change_element = soup.find(class_=re.compile("price_up|price_down|price_flat"))
+        if change_element:
+            change_val = change_element.get_text(strip=True)
+        else:
+            # テキストから「前日比」という文字の次にある要素を探す
+            change_label = soup.find(string=re.compile("前日比"))
+            if change_label:
+                change_val = change_label.find_next().get_text(strip=True)
+
+        if price_val:
+            print(f"Found price: {price_val}, change: {change_val}")
+            return price_val, change_val
         
         return None, None
     except Exception as e:
@@ -105,7 +114,7 @@ def main():
                 status_emoji = "📈 金価格情報"
 
             msg = (f"{status_emoji}\n"
-                   f"【田中貴金属】\n"
+                   f"【田中貴金属 公式】\n"
                    f"日時: {now}\n"
                    f"店頭小売価格: **{price_int:,} 円**\n"
                    f"前日比: **{change}**\n\n"
@@ -115,11 +124,8 @@ def main():
             return
         
         retry += 1
-        if retry <= MAX_RETRY:
-            print(f"Retry {retry} in 5 seconds...")
-            time.sleep(5)
-        else:
-            print("Failed to fetch price after retries.")
+        print(f"Retry {retry} in 5 seconds...")
+        time.sleep(5)
 
 if __name__ == "__main__":
     main()
