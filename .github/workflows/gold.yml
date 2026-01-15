@@ -2,7 +2,7 @@ name: Gold Price Notify
 
 on:
   schedule:
-    # JST 9:40, 9:50, 10:00, 10:10 → UTCに変換
+    # JST 9:40, 9:50, 10:00, 10:10 → UTC
     - cron: '40 0 * * *'   # 9:40 JST
     - cron: '50 0 * * *'   # 9:50 JST
     - cron: '0 1 * * *'    # 10:00 JST
@@ -12,6 +12,10 @@ on:
 jobs:
   notify:
     runs-on: ubuntu-latest
+    # 書き込み権限を許可（ath.txtの保存に必要）
+    permissions:
+      contents: write
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -27,7 +31,17 @@ jobs:
           pip install requests beautifulsoup4
 
       - name: Run python fetch_gold.py
-        run: python fetch_gold.py
+        # envをrunの前に配置し、確実に渡るようにします
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           DISCORD_USER_ID: ${{ secrets.DISCORD_USER_ID }}
+        run: python fetch_gold.py
+
+      - name: Commit and push if ATH updated
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          if [ -f ath.txt ]; then
+            git add ath.txt
+            git diff --quiet && git diff --staged --quiet || (git commit -m "Update ATH price" && git push)
+          fi
