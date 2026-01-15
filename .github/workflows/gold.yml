@@ -2,12 +2,9 @@ name: Gold Price Notify
 
 on:
   schedule:
-    # 平日の 09:40, 10:00, 14:05, 14:15 (UTC +9)
-    # 混雑による遅延を考慮し、回数を絞っています
-    - cron: '40 0 * * 1-5' # 09:40 JST
-    - cron: '0 1 * * 1-5'  # 10:00 JST
-    - cron: '05 5 * * 1-5' # 14:05 JST
-    - cron: '15 5 * * 1-5' # 14:15 JST
+    # 平日の 09:40, 10:00 (UTC 00:40, 01:00) のみに限定
+    - cron: '40 0 * * 1-5'
+    - cron: '00 1 * * 1-5'
   workflow_dispatch:
 
 jobs:
