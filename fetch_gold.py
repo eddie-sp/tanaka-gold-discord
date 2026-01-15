@@ -10,6 +10,7 @@ DISCORD_USER_ID = os.getenv("DISCORD_USER_ID")
 TANAKA_URL = "https://gold.tanaka.co.jp/commodity/souba/d-gold.php"
 MAX_RETRY = 2
 ATH_FILE = "ath_gold.txt"
+LAST_SENT_FILE = "last_sent_date.txt"  # 送信済み日付を記録
 
 def send_discord(message):
     if not DISCORD_WEBHOOK_URL: return
@@ -29,7 +30,6 @@ def fetch_gold_price():
                 price_text = cols[1].get_text(strip=True)
                 price_val = re.sub(r'\D', '', price_text)
                 change_val = cols[2].get_text(strip=True)
-                # 「不明」や空文字の場合はまだ更新前と判断
                 if not price_val or "不明" in change_val:
                     return None, None
                 return int(price_val), change_val
@@ -51,6 +51,14 @@ def check_ath(current_price):
     return False
 
 def main():
+    # 本日すでに通知済みかチェック
+    today_str = datetime.datetime.now().strftime("%Y-%m-%d")
+    if os.path.exists(LAST_SENT_FILE):
+        with open(LAST_SENT_FILE, "r") as f:
+            if f.read().strip() == today_str:
+                print("Today's notification already sent. Skipping.")
+                return
+
     success = False
     for retry in range(MAX_RETRY + 1):
         price, change = fetch_gold_price()
@@ -62,12 +70,13 @@ def main():
                    f"日時: {now}\n店頭小売価格: **{price:,} 円**\n"
                    f"前日比: **{change}**\n\n🔗 公式: {TANAKA_URL}")
             send_discord(msg)
+            
+            # 送信成功した日付を記録
+            with open(LAST_SENT_FILE, "w") as f:
+                f.write(today_str)
             success = True
             break
         time.sleep(10)
-    # 失敗時はログに残すのみで、Discordには通知しない（連投防止）
-    if not success:
-        print("Price not updated yet. Skip notification.")
 
 if __name__ == "__main__":
     main()
