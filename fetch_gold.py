@@ -9,7 +9,7 @@ import re
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 DISCORD_USER_ID = os.getenv("DISCORD_USER_ID")
 
-# 取得先URL（田中貴金属の情報をまとめているサイト）
+# 取得先URL
 GOLD_SITE_URL = "https://ja.goldpedia.org/"
 TANAKA_URL = "https://gold.tanaka.co.jp/commodity/souba/d-gold.php"
 
@@ -21,7 +21,7 @@ def send_discord(message):
         print("Error: DISCORD_WEBHOOK_URL is not set.")
         return
     
-    # eddieさんへのメンション付き
+    # メンション付き
     content = f"<@{DISCORD_USER_ID}> {message}" if DISCORD_USER_ID else message
     
     data = {"content": content}
@@ -45,23 +45,24 @@ def fetch_gold_price():
         for row in rows:
             if "田中貴金属" in row.get_text():
                 cols = row.find_all("td")
-                if len(cols) >= 4:
-                    # 小売価格を取得（25,998円などの形式から数字のみ抽出）
+                # cols[0]:店舗名, cols[1]:小売価格, cols[2]:前日比(または買取), cols[3]:前日比
+                if len(cols) >= 3:
+                    # 小売価格
                     raw_price = cols[1].get_text(strip=True)
                     price_text = re.sub(r'\D', '', raw_price) 
                     
-                    # 前日比を取得（インデックスを変更：通常、小売価格の次は前日比のケースが多い）
-                    # サイト構造に合わせて「〇〇円」という形式から符号を維持して抽出
-                    change_text = cols[2].get_text(strip=True)
+                    # 前日比の特定 (数値が5桁以上の場合は「買取価格」と判断してスキップ)
+                    change_candidate = cols[2].get_text(strip=True)
+                    clean_change = re.sub(r'[^-0-9]', '', change_candidate)
                     
-                    # もしchange_textが買取価格（例: 25,751）っぽければ、別の列を探す
-                    if len(change_text.replace(",", "")) > 5:
-                        change_text = cols[3].get_text(strip=True)
+                    if len(clean_change) > 4: # 25,751のような数値なら次の列へ
+                        change_text = cols[3].get_text(strip=True) if len(cols) > 3 else "不明"
+                    else:
+                        change_text = change_candidate
 
                     print(f"Found price: {price_text}, change: {change_text}")
                     return price_text, change_text
         
-        print("Could not find Tanaka Gold price row.")
         return None, None
     except Exception as e:
         print(f"Fetch error: {e}")
@@ -105,12 +106,12 @@ def main():
                    f"🔗 公式サイト: {TANAKA_URL}")
 
             send_discord(msg)
-            return
+            return # 成功したら即終了
         
         retry += 1
         if retry <= MAX_RETRY:
-            print(f"Retry {retry} after 5 minutes...")
-            time.sleep(300)
+            print(f"Retry {retry} in 5 seconds...")
+            time.sleep(5) # テストのために待機時間を短縮
         else:
             print("Failed to fetch price after retries.")
 
