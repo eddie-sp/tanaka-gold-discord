@@ -3,12 +3,13 @@ from bs4 import BeautifulSoup
 import datetime
 import os
 import time
+import re
 
 # Secrets から取得
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 DISCORD_USER_ID = os.getenv("DISCORD_USER_ID")
 
-# 取得先URL
+# 取得先URL（田中貴金属の情報をまとめているサイト）
 GOLD_SITE_URL = "https://ja.goldpedia.org/"
 TANAKA_URL = "https://gold.tanaka.co.jp/commodity/souba/d-gold.php"
 
@@ -20,7 +21,7 @@ def send_discord(message):
         print("Error: DISCORD_WEBHOOK_URL is not set.")
         return
     
-    # メンション設定
+    # eddieさんへのメンション付き
     content = f"<@{DISCORD_USER_ID}> {message}" if DISCORD_USER_ID else message
     
     data = {"content": content}
@@ -40,17 +41,24 @@ def fetch_gold_price():
         res.raise_for_status()
         soup = BeautifulSoup(res.text, "html.parser")
 
-        # すべてのテーブル行をスキャン
         rows = soup.find_all("tr")
         for row in rows:
-            text = row.get_text()
-            if "田中貴金属" in text:
+            if "田中貴金属" in row.get_text():
                 cols = row.find_all("td")
-                if len(cols) >= 2:
-                    # 数字以外の文字（円やカンマなど）を整理
-                    price_text = cols[1].get_text(strip=True).replace("円", "").strip()
-                    change_text = cols[2].get_text(strip=True) if len(cols) > 2 else "---"
-                    print(f"Found price: {price_text}")
+                if len(cols) >= 4:
+                    # 小売価格を取得（25,998円などの形式から数字のみ抽出）
+                    raw_price = cols[1].get_text(strip=True)
+                    price_text = re.sub(r'\D', '', raw_price) 
+                    
+                    # 前日比を取得（インデックスを変更：通常、小売価格の次は前日比のケースが多い）
+                    # サイト構造に合わせて「〇〇円」という形式から符号を維持して抽出
+                    change_text = cols[2].get_text(strip=True)
+                    
+                    # もしchange_textが買取価格（例: 25,751）っぽければ、別の列を探す
+                    if len(change_text.replace(",", "")) > 5:
+                        change_text = cols[3].get_text(strip=True)
+
+                    print(f"Found price: {price_text}, change: {change_text}")
                     return price_text, change_text
         
         print("Could not find Tanaka Gold price row.")
@@ -80,11 +88,9 @@ def main():
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
         
         if price_str:
-            # カンマを除去して数値化
-            price_int = int(price_str.replace(",", ""))
+            price_int = int(price_str)
             ath = read_ath()
             
-            # 最高値判定
             if price_int > ath:
                 write_ath(price_int)
                 status_emoji = "🎊 史上最高値更新‼️🚀"
@@ -95,7 +101,7 @@ def main():
                    f"【田中貴金属】\n"
                    f"日時: {now}\n"
                    f"店頭小売価格: **{price_int:,} 円**\n"
-                   f"前日比: {change}\n\n"
+                   f"前日比: **{change}**\n\n"
                    f"🔗 公式サイト: {TANAKA_URL}")
 
             send_discord(msg)
@@ -106,8 +112,7 @@ def main():
             print(f"Retry {retry} after 5 minutes...")
             time.sleep(300)
         else:
-            # 最終的に取れなかった場合のみエラー通知
-            send_discord(f"⚠️ 金価格の取得に失敗しました。\nサイトの構造変化かアクセスの制限が考えられます。\n日時: {now}")
+            print("Failed to fetch price after retries.")
 
 if __name__ == "__main__":
     main()
