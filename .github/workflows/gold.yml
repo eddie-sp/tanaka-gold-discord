@@ -1,38 +1,52 @@
 name: Gold Price Notify
 
 on:
-  schedule:
-    # 平日の 09:40, 10:00 (UTC 00:40, 01:00) のみに限定
-    - cron: '40 0 * * 1-5'
-    - cron: '00 1 * * 1-5'
-  workflow_dispatch:
+  workflow_dispatch: # GAS（API）からの命令を受け取れるようにします
+
+permissions:
+  contents: write # 実行後に「送信済み」をファイルに書き込む権限を与えます
+
+concurrency:
+  group: gold-notify
+  cancel-in-progress: false # 1通目と2通目が重なっても順番に処理させます
 
 jobs:
-  build:
+  notify:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
+        uses: actions/checkout@v4
+        with:
+          repository: 'eddie-sp/tanaka-gold-discord'
+
+      - name: Set up Python environment
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
       - name: Install dependencies
         run: |
+          python -m pip install --upgrade pip
           pip install requests beautifulsoup4
 
-      - name: Run script
+      - name: Run gold price script
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           DISCORD_USER_ID: ${{ secrets.DISCORD_USER_ID }}
         run: python fetch_gold.py
 
-      - name: Commit and Push ATH update
+      - name: Commit and Push update
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add ath_gold.txt
-          git commit -m "Update ATH price [skip ci]" || echo "No changes to commit"
-          git push
+          # 記録用ファイルがあれば保存する
+          git add last_sent_date.txt ath_gold.txt || true
+          if ! git diff --cached --exit-code; then
+            git commit -m "Update daily status and ATH"
+            git push
+          fi
